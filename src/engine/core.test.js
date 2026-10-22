@@ -6,12 +6,75 @@ import { describe, it, expect } from 'vitest'
 import { createEngine } from './core.js'
 
 describe('engine basics', () => {
-    it('evaluates arithmetic and ranges', () => {
+    it('evaluates arithmetic', () => {
+        const engine = createEngine(10, 10)
+        engine.setCell(0, 0, '10')
+        engine.setCell(1, 0, '=A1*2')
+        expect(engine.getCell(1, 0).computed).toBe(20)
+    })
+
+    it('evaluates a range before applying the rest of the formula', () => {
         const engine = createEngine(10, 10)
         engine.setCell(0, 0, '10')
         engine.setCell(1, 0, '20')
         engine.setCell(2, 0, '=SUM(A1:A2)*2')
         expect(engine.getCell(2, 0).computed).toBe(60)
+    })
+
+    it('keeps text that is not a complete plain number unchanged', () => {
+        const engine = createEngine(10, 10)
+        engine.setCell(0, 0, '2024-01-15')
+        engine.setCell(1, 0, '007')
+        engine.setCell(2, 0, '10%')
+        engine.setCell(3, 0, ' 12.5 ')
+
+        expect(engine.getCell(0, 0).computed).toBe('2024-01-15')
+        expect(engine.getCell(1, 0).computed).toBe('007')
+        expect(engine.getCell(2, 0).computed).toBe('10%')
+        expect(engine.getCell(3, 0).computed).toBe(12.5)
+
+        engine.setCell(0, 1, '=SUM(A1:A3)')
+        expect(engine.getCell(0, 1).computed).toBe(0)
+    })
+
+    it('parses absolute references in formulas and preserves pinned coordinates on structural edits', () => {
+        const engine = createEngine(10, 10)
+        engine.setCell(0, 0, '10')
+        engine.setCell(1, 0, '20')
+        engine.setCell(2, 0, '=SUM($A$1:$A$2)')
+        expect(engine.getCell(2, 0).computed).toBe(30)
+        engine.setCell(0, 0, '11')
+        expect(engine.getCell(2, 0).computed).toBe(31)
+
+        const rowInsertEngine = createEngine(10, 10)
+        rowInsertEngine.setCell(4, 1, '=$A$1+$A1+A$1')
+        rowInsertEngine.insertRow(0)
+        expect(rowInsertEngine.getCell(5, 1).raw).toBe('=$A$2+$A2+A$2')
+
+        const columnInsertEngine = createEngine(10, 10)
+        columnInsertEngine.setCell(7, 3, '=$B$1+$B1+B$1')
+        columnInsertEngine.insertColumn(1)
+        expect(columnInsertEngine.getCell(7, 4).raw).toBe('=$C$1+$C1+C$1')
+
+        const rowDeleteEngine = createEngine(10, 10)
+        rowDeleteEngine.setCell(4, 1, '=$A$3+$A3+A$3')
+        rowDeleteEngine.deleteRow(1)
+        expect(rowDeleteEngine.getCell(3, 1).raw).toBe('=$A$2+$A2+A$2')
+
+        const columnDeleteEngine = createEngine(10, 10)
+        columnDeleteEngine.setCell(4, 3, '=$C$1+$C1+C$1')
+        columnDeleteEngine.deleteColumn(1)
+        expect(columnDeleteEngine.getCell(4, 2).raw).toBe('=$B$1+$B1+B$1')
+    })
+
+    it('evaluates unary minus on references and numbers', () => {
+        const engine = createEngine(10, 10)
+        engine.setCell(0, 0, '5')
+        engine.setCell(0, 1, '=-A1')
+        engine.setCell(0, 2, '=A1*-1')
+
+        expect(engine.getCell(0, 1).computed).toBe(-5)
+        expect(engine.getCell(0, 2).computed).toBe(-5)
     })
 
     it('reports a cycle instead of hanging', () => {
