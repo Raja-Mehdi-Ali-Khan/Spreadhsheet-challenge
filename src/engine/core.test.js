@@ -77,6 +77,74 @@ describe('engine basics', () => {
         expect(engine.getCell(0, 2).computed).toBe(-5)
     })
 
+    it('fills formulas with relative and absolute references and supports batch undo/redo', () => {
+        const engine = createEngine(40, 20)
+        engine.setCells([
+            { r: 1, c: 10, value: '=G2*H2' },
+            { r: 1, c: 11, value: '=$G$2*H2' }
+        ])
+        engine.fillRange(
+            { r1: 1, c1: 10, r2: 1, c2: 11 },
+            { r1: 1, c1: 10, r2: 31, c2: 11 }
+        )
+
+        expect(engine.getCell(31, 10).raw).toBe('=G32*H32')
+        expect(engine.getCell(31, 11).raw).toBe('=$G$2*H32')
+        expect(engine.undo()).toBe(true)
+        expect(engine.getCell(2, 10).raw).toBe('')
+        expect(engine.getCell(31, 10).raw).toBe('')
+        expect(engine.redo()).toBe(true)
+        expect(engine.getCell(31, 10).raw).toBe('=G32*H32')
+        expect(engine.getCell(31, 11).raw).toBe('=$G$2*H32')
+    })
+
+    it('recalculates dependent formulas after a batched edit and batch undo/redo', () => {
+        const engine = createEngine(10, 10)
+        engine.setCells([
+            { r: 0, c: 0, value: '1' },
+            { r: 0, c: 1, value: '2' },
+            { r: 0, c: 2, value: '=A1+B1' }
+        ])
+        engine.setCells([
+            { r: 0, c: 0, value: '3' },
+            { r: 0, c: 1, value: '4' }
+        ])
+        expect(engine.getCell(0, 2).computed).toBe(7)
+
+        engine.undo()
+        expect(engine.getCell(0, 2).computed).toBe(3)
+        engine.redo()
+        expect(engine.getCell(0, 2).computed).toBe(7)
+    })
+
+    it('fills horizontally and shifts only relative formula columns', () => {
+        const engine = createEngine(10, 10)
+        engine.setCell(0, 1, '=$A$1+A$1+$A1')
+        engine.fillRange(
+            { r1: 0, c1: 1, r2: 0, c2: 1 },
+            { r1: 0, c1: 1, r2: 0, c2: 3 }
+        )
+
+        expect(engine.getCell(0, 2).raw).toBe('=$A$1+B$1+$A1')
+        expect(engine.getCell(0, 3).raw).toBe('=$A$1+C$1+$A1')
+    })
+
+    it('fills 5,000 cells in under 200 ms', () => {
+        const engine = createEngine(5002, 2)
+        engine.setCell(0, 0, '1')
+        engine.setCell(1, 0, '2')
+
+        const started = performance.now()
+        engine.fillRange(
+            { r1: 0, c1: 0, r2: 1, c2: 0 },
+            { r1: 0, c1: 0, r2: 5001, c2: 0 }
+        )
+        const elapsed = performance.now() - started
+
+        expect(engine.getCell(5001, 0).computed).toBe(5002)
+        expect(elapsed).toBeLessThan(200)
+    })
+
     it('reports a cycle instead of hanging', () => {
         const engine = createEngine(10, 10)
         engine.setCell(0, 0, '=B1')

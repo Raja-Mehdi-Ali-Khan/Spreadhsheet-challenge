@@ -1,3 +1,5 @@
+import { fillSeries } from './fill.js'
+
 // ─────────────────────────────────────────────────────────────
 //  Operator precedence for expression parsing
 // ─────────────────────────────────────────────────────────────
@@ -55,7 +57,7 @@ function createDependencyGraph() {
         reverseEdges.get(dependsOn).add(cell)
     }
 
-    function removeAllDependencies(cell) {
+    function removeDependencies(cell) {
         const deps = forwardEdges.get(cell)
         if (deps) {
             for (const dep of deps) {
@@ -65,16 +67,6 @@ function createDependencyGraph() {
                 }
             }
             forwardEdges.delete(cell)
-        }
-        const dependents = reverseEdges.get(cell)
-        if (dependents) {
-            for (const dependent of dependents) {
-                if (forwardEdges.has(dependent)) {
-                    forwardEdges.get(dependent).delete(cell)
-                    if (forwardEdges.get(dependent).size === 0) forwardEdges.delete(dependent)
-                }
-            }
-            reverseEdges.delete(cell)
         }
     }
 
@@ -152,7 +144,7 @@ function createDependencyGraph() {
 
     return {
         addDependency,
-        removeAllDependencies,
+        removeDependencies,
         getDependencies,
         getDependents,
         getAllDependentsRecursive,
@@ -627,7 +619,7 @@ export function createEngine(initialRows = 50, initialCols = 50) {
 
     function setCellRaw(row, col, raw) {
         const key = cellKey(row, col)
-        graph.removeAllDependencies(key)
+        graph.removeDependencies(key)
         computedCache.delete(key)
 
         if (!raw || raw.trim() === '') {
@@ -640,7 +632,7 @@ export function createEngine(initialRows = 50, initialCols = 50) {
             cells.set(key, { raw, computed: null, error: null })
             updateDependencies(key, raw)
             if (graph.hasCycle(key)) {
-                graph.removeAllDependencies(key)
+                graph.removeDependencies(key)
                 cells.set(key, { raw, computed: null, error: '#CYCLE!' })
                 markCellDirty(key)
                 return
@@ -816,6 +808,99 @@ export function createEngine(initialRows = 50, initialCols = 50) {
         recalculate()
     }
 
+    function executeSetCells(entries) {
+        if (!Array.isArray(entries)) throw new TypeError('entries must be an array')
+
+        const changesByKey = new Map()
+        for (const entry of entries) {
+            if (!entry || !Number.isInteger(entry.r) || !Number.isInteger(entry.c) || typeof entry.value !== 'string') {
+                throw new TypeError('Each entry must have integer r and c values and a string value')
+            }
+            const key = cellKey(entry.r, entry.c)
+            const existing = changesByKey.get(key)
+            changesByKey.set(key, {
+                r: entry.r,
+                c: entry.c,
+                oldVal: existing ? existing.oldVal : getCellRaw(entry.r, entry.c).raw,
+                newVal: entry.value
+            })
+        }
+
+        const changes = [...changesByKey.values()].filter(change => change.oldVal !== change.newVal)
+        if (changes.length === 0) return
+
+        pushToUndoStack({ type: 'batch', cells: changes })
+        for (const change of changes) setCellRaw(change.r, change.c, change.newVal)
+        _generation++
+        recalculate()
+    }
+
+    function executeFillRange(src, dst) {
+        function validateRange(range, name) {
+            if (
+                !range ||
+                !Number.isInteger(range.r1) ||
+                !Number.isInteger(range.c1) ||
+                !Number.isInteger(range.r2) ||
+                !Number.isInteger(range.c2) ||
+                range.r1 < 0 ||
+                range.c1 < 0 ||
+                range.r1 > range.r2 ||
+                range.c1 > range.c2
+            ) {
+                throw new TypeError(`${name} must have valid non-negative integer bounds`)
+            }
+        }
+
+        validateRange(src, 'src')
+        validateRange(dst, 'dst')
+        if (
+            dst.r1 > src.r1 ||
+            dst.c1 > src.c1 ||
+            dst.r2 < src.r2 ||
+            dst.c2 < src.c2
+        ) {
+            throw new RangeError('dst must contain src')
+        }
+
+        const extendsRows = dst.r1 < src.r1 || dst.r2 > src.r2
+        const extendsColumns = dst.c1 < src.c1 || dst.c2 > src.c2
+        if (!extendsRows && !extendsColumns) return
+        if (extendsRows && extendsColumns) throw new RangeError('Fill in one direction at a time')
+
+        const entries = []
+        if (extendsRows) {
+            if (dst.c1 !== src.c1 || dst.c2 !== src.c2) throw new RangeError('Vertical fills must preserve the source columns')
+            for (let col = src.c1; col <= src.c2; col++) {
+                const seeds = []
+                for (let row = src.r1; row <= src.r2; row++) seeds.push(getCellRaw(row, col).raw)
+                if (dst.r1 < src.r1) {
+                    const values = fillSeries(seeds, src.r1 - dst.r1, true)
+                    values.forEach((value, index) => entries.push({ r: dst.r1 + index, c: col, value }))
+                }
+                if (dst.r2 > src.r2) {
+                    const values = fillSeries(seeds, dst.r2 - src.r2)
+                    values.forEach((value, index) => entries.push({ r: src.r2 + index + 1, c: col, value }))
+                }
+            }
+        } else {
+            if (dst.r1 !== src.r1 || dst.r2 !== src.r2) throw new RangeError('Horizontal fills must preserve the source rows')
+            for (let row = src.r1; row <= src.r2; row++) {
+                const seeds = []
+                for (let col = src.c1; col <= src.c2; col++) seeds.push(getCellRaw(row, col).raw)
+                if (dst.c1 < src.c1) {
+                    const values = fillSeries(seeds, src.c1 - dst.c1, true, 'column')
+                    values.forEach((value, index) => entries.push({ r: row, c: dst.c1 + index, value }))
+                }
+                if (dst.c2 > src.c2) {
+                    const values = fillSeries(seeds, dst.c2 - src.c2, false, 'column')
+                    values.forEach((value, index) => entries.push({ r: row, c: src.c2 + index + 1, value }))
+                }
+            }
+        }
+        executeSetCells(entries)
+    }
+
     function executeInsertRow(atIndex) {
         const snapshot = takeSnapshot()
         const previousRows = rows
@@ -859,6 +944,17 @@ export function createEngine(initialRows = 50, initialCols = 50) {
             setCellRaw(entry.r, entry.c, entry.oldVal)
             _generation++
             recalculate()
+        } else if (entry.type === 'batch') {
+            redoStack.push({
+                ...entry,
+                cells: entry.cells.map(change => ({
+                    ...change,
+                    newVal: getCellRaw(change.r, change.c).raw
+                }))
+            })
+            for (const change of entry.cells) setCellRaw(change.r, change.c, change.oldVal)
+            _generation++
+            recalculate()
         } else {
             // For structural changes (row/col insert/delete), save current state to redo
             // and restore the snapshot from undo entry
@@ -887,6 +983,17 @@ export function createEngine(initialRows = 50, initialCols = 50) {
             const currentValue = getCellRaw(entry.r, entry.c).raw
             undoStack.push({ ...entry, oldVal: currentValue })
             setCellRaw(entry.r, entry.c, entry.newVal)
+            _generation++
+            recalculate()
+        } else if (entry.type === 'batch') {
+            undoStack.push({
+                ...entry,
+                cells: entry.cells.map(change => ({
+                    ...change,
+                    oldVal: getCellRaw(change.r, change.c).raw
+                }))
+            })
+            for (const change of entry.cells) setCellRaw(change.r, change.c, change.newVal)
             _generation++
             recalculate()
         } else {
@@ -932,6 +1039,8 @@ export function createEngine(initialRows = 50, initialCols = 50) {
         get cols() { return cols },
         getCell: getCellForDisplay,
         setCell: executeSetCell,
+        setCells: executeSetCells,
+        fillRange: executeFillRange,
         insertRow: executeInsertRow,
         deleteRow: executeDeleteRow,
         insertColumn: executeInsertColumn,
