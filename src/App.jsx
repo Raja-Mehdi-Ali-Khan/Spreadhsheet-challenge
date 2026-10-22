@@ -81,9 +81,13 @@ export default function App() {
       setFocus(Math.max(0, Math.min(engine.rows - 1, selection.focus.r + delta[0])), Math.max(0, Math.min(engine.cols - 1, selection.focus.c + delta[1])), event.shiftKey)
       return
     }
-    if (event.key === 'Tab') { event.preventDefault(); commitEdit({ r: 0, c: 1 }); return }
+    if (event.key === 'Tab') {
+      event.preventDefault()
+      setFocus(selection.focus.r, Math.max(0, Math.min(engine.cols - 1, selection.focus.c + (event.shiftKey ? -1 : 1))))
+      return
+    }
     if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) beginEdit(anchor.r, anchor.c, event.key)
-  }, [engine, anchor, selection, beginEdit, clearSelection, setFocus, commitEdit, force])
+  }, [engine, anchor, selection, beginEdit, clearSelection, setFocus, force])
 
   const onGridKeyDown = useCallback((event) => { if (!editingCell) navigateKey(event) }, [editingCell, navigateKey])
   const onInputKeyDown = useCallback((event) => {
@@ -119,7 +123,7 @@ export default function App() {
       }
       if (Object.keys(updates).length) setCellStyles(prev => ({ ...prev, ...updates }))
       force()
-      setSelection({ anchor: { r: src.r1, c: src.c1 }, focus: { r: preview.r2, c: preview.c2 } })
+      setSelection({ anchor: { r: preview.r1, c: preview.c1 }, focus: { r: preview.r2, c: preview.c2 } })
     }
     fillDrag.current = null; setFillPreview(null)
     window.removeEventListener('pointermove', handleFillMove)
@@ -144,11 +148,11 @@ export default function App() {
         <button className="toolbar-btn danger" onClick={clearSelection}>✕ Clear</button><button className="toolbar-btn" onClick={() => load(loadSampleSmall)}>⬇ Sample 33</button><button className="toolbar-btn" onClick={() => load(loadSampleLarge)}>⬇ Sample 3k</button>
       </div>
       <div className="formula-bar"><span className="formula-bar-label">{label}</span><input className="formula-bar-input" value={editingCell ? editValue : engine.getCell(anchor.r, anchor.c).raw} onFocus={() => { if (!editingCell) { setEditingCell(anchor); setEditValue(engine.getCell(anchor.r, anchor.c).raw) } }} onChange={e => setEditValue(e.target.value)} onKeyDown={onInputKeyDown} onBlur={() => { if (editingCell) commitEdit() }}/></div>
-      <div className="grid-scroll" ref={gridRef} tabIndex={0} onKeyDown={onGridKeyDown} onPointerMove={event => { if (mouseSelecting.current) { const el = document.elementFromPoint(event.clientX,event.clientY)?.closest('[data-cell]'); if (el) setFocus(Number(el.dataset.r), Number(el.dataset.c), true) } }} onPointerUp={() => { mouseSelecting.current = false }}>
-        <table className="grid-table"><thead><tr><th className="col-header-blank"></th>{Array.from({length:engine.cols},(_,c)=><th key={c} className="col-header" onClick={() => { setSelection({anchor:{r:0,c},focus:{r:engine.rows-1,c}}); gridRef.current?.focus() }}>{getColumnLabel(c)}</th>)}</tr></thead><tbody>{Array.from({length:engine.rows},(_,r)=><tr key={r}><td className="row-header" onClick={() => {setSelection({anchor:{r,c:0},focus:{r,c:engine.cols-1}});gridRef.current?.focus()}}>{r+1}</td>{Array.from({length:engine.cols},(_,c)=>{
+      <div className="grid-scroll" ref={gridRef} tabIndex={0} onKeyDown={onGridKeyDown} onPointerMove={event => { if (mouseSelecting.current) { const el = document.elementFromPoint(event.clientX,event.clientY)?.closest('[data-cell]'); if (el) { const r = Number(el.dataset.r), c = Number(el.dataset.c); setSelection(prev => prev.focus.r === r && prev.focus.c === c ? prev : { anchor: prev.anchor, focus: { r, c } }) } } }} onPointerUp={() => { mouseSelecting.current = false }}>
+        <table className="grid-table"><thead><tr><th className="col-header-blank"></th>{Array.from({length:engine.cols},(_,c)=><th key={c} className="col-header" onClick={() => { if (editingCell) commitEdit(); setSelection({anchor:{r:0,c},focus:{r:engine.rows-1,c}}); gridRef.current?.focus() }}>{getColumnLabel(c)}</th>)}</tr></thead><tbody>{Array.from({length:engine.rows},(_,r)=><tr key={r}><td className="row-header" onClick={() => {if (editingCell) commitEdit(); setSelection({anchor:{r,c:0},focus:{r,c:engine.cols-1}});gridRef.current?.focus()}}>{r+1}</td>{Array.from({length:engine.cols},(_,c)=>{
           const cell=engine.getCell(r,c), style=styleAt(r,c), selected=rangeContains(r,c), isAnchor=anchor.r===r&&anchor.c===c, editing=editingCell?.r===r&&editingCell?.c===c
           const display=cell.error||((cell.computed!==null&&cell.computed!=='')?String(cell.computed):cell.raw)
-          return <td key={c} data-cell data-r={r} data-c={c} className={`cell ${selected?'in-selection':''} ${isAnchor?'anchor-cell':''} ${selected&&r===activeBounds.r1?'selection-top':''} ${selected&&r===activeBounds.r2?'selection-bottom':''} ${selected&&c===activeBounds.c1?'selection-left':''} ${selected&&c===activeBounds.c2?'selection-right':''}`} style={{background:style.bg}} onPointerDown={e=>{if(e.target.classList.contains('fill-handle'))return; e.preventDefault(); if(editing) return; if(selection.anchor.r===r&&selection.anchor.c===c&&e.detail>1){beginEdit(r,c);return} selectCell(r,c,e.shiftKey); mouseSelecting.current=true}} onDoubleClick={()=>beginEdit(r,c)}>
+          return <td key={c} data-cell data-r={r} data-c={c} className={`cell ${selected?'in-selection':''} ${isAnchor?'anchor-cell':''} ${selected&&r===activeBounds.r1?'selection-top':''} ${selected&&r===activeBounds.r2?'selection-bottom':''} ${selected&&c===activeBounds.c1?'selection-left':''} ${selected&&c===activeBounds.c2?'selection-right':''}`} style={{background:style.bg}} onPointerDown={e=>{if(e.target.classList.contains('fill-handle'))return; e.preventDefault(); if(editing) return; if(selection.anchor.r===r&&selection.anchor.c===c&&e.detail>1){beginEdit(r,c);return} selectCell(r,c,e.shiftKey); mouseSelecting.current=true; window.addEventListener('pointerup', () => { mouseSelecting.current = false }, { once: true })}} onDoubleClick={()=>beginEdit(r,c)}>
             {editing?<input ref={inputRef} className="cell-input" value={editValue} onChange={e=>setEditValue(e.target.value)} onKeyDown={onInputKeyDown} onBlur={()=>{if(editingCell)commitEdit()}} style={{fontWeight:style.bold?'bold':'normal',fontStyle:style.italic?'italic':'normal',textDecoration:style.underline?'underline':'none',color:style.color,fontSize:style.fontSize+'px',textAlign:style.align,background:style.bg}}/>:<div className={`cell-display align-${style.align} ${cell.error?'error':''}`} style={{fontWeight:style.bold?'bold':'normal',fontStyle:style.italic?'italic':'normal',textDecoration:style.underline?'underline':'none',color:cell.error?'#d93025':style.color,fontSize:style.fontSize+'px'}}>{display}</div>}
             {r===bounds.r2&&c===bounds.c2&&<button aria-label="Fill handle" className="fill-handle" onPointerDown={e=>{e.preventDefault();e.stopPropagation();fillDrag.current={src:{...bounds},preview:{...bounds}};window.addEventListener('pointermove',handleFillMove);window.addEventListener('pointerup',endFill,{once:true})}}/>}
           </td>

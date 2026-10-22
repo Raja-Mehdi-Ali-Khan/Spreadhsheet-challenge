@@ -76,4 +76,43 @@ describe('Challenge 1 acceptance on sales.tsv', () => {
         expect(engine.undo()).toBe(true)
         expect(range.map(({ r, c }) => engine.getCell(r, c).raw)).toEqual(range.map(({ value }) => value))
     })
+
+    it('fills A2:A3 upward to A1 and one undo restores the header', () => {
+        const engine = loadSales()
+        expect([1, 2].map(r => engine.getCell(r, 0).raw)).toEqual(['ORD-1001', 'ORD-1002'])
+
+        engine.fillRange(
+            { r1: 1, c1: 0, r2: 2, c2: 0 },
+            { r1: 0, c1: 0, r2: 2, c2: 0 }
+        )
+        expect(engine.getCell(0, 0).raw).toBe('ORD-1000')
+        expect(engine.undo()).toBe(true)
+        expect(engine.getCell(0, 0).raw).toBe('Order ID')
+    })
+
+    it('fills a two-cell row seed right and one undo restores the destination', () => {
+        const engine = createEngine(5, 5)
+        engine.setCells([{ r: 1, c: 0, value: 'ORD-1001' }, { r: 1, c: 1, value: 'ORD-1002' }])
+
+        engine.fillRange(
+            { r1: 1, c1: 0, r2: 1, c2: 1 },
+            { r1: 1, c1: 0, r2: 1, c2: 3 }
+        )
+        expect([2, 3].map(c => engine.getCell(1, c).raw)).toEqual(['ORD-1003', 'ORD-1004'])
+        expect(engine.undo()).toBe(true)
+        expect([2, 3].map(c => engine.getCell(1, c).raw)).toEqual(['', ''])
+    })
+
+    it('fills the same two-cell row seed left and one undo restores the destination', () => {
+        const engine = createEngine(5, 5)
+        engine.setCells([{ r: 1, c: 2, value: 'ORD-1001' }, { r: 1, c: 3, value: 'ORD-1002' }])
+
+        engine.fillRange(
+            { r1: 1, c1: 2, r2: 1, c2: 3 },
+            { r1: 1, c1: 0, r2: 1, c2: 3 }
+        )
+        expect([0, 1].map(c => engine.getCell(1, c).raw)).toEqual(['ORD-0999', 'ORD-1000'])
+        expect(engine.undo()).toBe(true)
+        expect([0, 1].map(c => engine.getCell(1, c).raw)).toEqual(['', ''])
+    })
 })
