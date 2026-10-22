@@ -161,6 +161,32 @@ describe('engine basics', () => {
         expect(engine.getCell(0, 1).error).toBe('#CYCLE!')
     })
 
+    it('keeps dependents after editing their precedent and detects a later cycle', () => {
+        const engine = createEngine(5, 3)
+        engine.setCells([{ r: 0, c: 0, value: '2' }, { r: 0, c: 1, value: '=A1+1' }])
+        engine.setCell(0, 0, '4')
+        expect(engine.getCell(0, 1).computed).toBe(5)
+        engine.setCell(0, 0, '=B1+1')
+        expect(engine.getCell(0, 0).error).toBe('#CYCLE!')
+        expect(engine.getCell(0, 1).error).toBe('#CYCLE!')
+    })
+
+    it('tracks range dependencies without expanding cells and treats blank arithmetic as zero', () => {
+        const engine = createEngine(8, 3)
+        engine.setCell(0, 1, '=SUM(A1:A5)')
+        engine.setCell(2, 0, '7')
+        expect(engine.getCell(0, 1).computed).toBe(7)
+        engine.setCell(0, 2, '=A8+1')
+        expect(engine.getCell(0, 2).computed).toBe(1)
+    })
+
+    it('does not recalculate unrelated cells', () => {
+        const engine = createEngine(10, 4)
+        engine.setCells([{ r: 0, c: 0, value: '1' }, { r: 0, c: 1, value: '=A1+1' }, { r: 2, c: 2, value: '9' }])
+        engine.setCell(2, 2, '10')
+        expect(engine.stats.lastRecalcCount).toBe(1)
+    })
+
     it('undoes and redoes a single edit', () => {
         const engine = createEngine(10, 10)
         engine.setCell(0, 0, 'hello')

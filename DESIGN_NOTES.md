@@ -1,4 +1,4 @@
-﻿# Design notes
+# Design notes
 
 ## Challenges
 
@@ -50,9 +50,9 @@ Every public engine method added or extended for these challenges, one line each
 
 ## Measurements
 
-- Fill budget — 53.42 ms for 5,000 generated cells in the final full Vitest run, on Windows with Vitest 3.2.7. `src/engine/fill.test.js` seeds 2 × 50 cells before timing, then calls `performance.now()` immediately before and after `engine.fillRange({ r1: 0, c1: 0, r2: 1, c2: 49 }, { r1: 0, c1: 0, r2: 101, c2: 49 })`; the 100 added rows × 50 columns are exactly 5,000 cells. The timing is a Node engine test, not a production build, and the test asserts under 200 ms.
-- Synthetic sort — ten timed sorts of 10,000 data rows (fixture setup excluded), using `performance.now()` around `sortRange` in Vitest's Node runtime: median 63.87 ms, min 48.72 ms, max 128.64 ms. The test asserts each run is under 300 ms; this is not a production build measurement.
-- Large sample date sort — `loadSampleLarge` fixture load was completed before timing; `performance.now()` surrounded `sortRange(engine.getUsedRange(), 1, 'asc')` in the same Node/Vitest run: 194.86 ms.
+- Fill budget — 68.41 ms for 5,000 generated cells in the final full Vitest run, on Windows with Vitest 3.2.7. `src/engine/fill.test.js` seeds 2 × 50 cells before timing, then calls `performance.now()` immediately before and after `engine.fillRange({ r1: 0, c1: 0, r2: 1, c2: 49 }, { r1: 0, c1: 0, r2: 101, c2: 49 })`; the 100 added rows × 50 columns are exactly 5,000 cells. The timing is a Node engine test, not a production build, and the test asserts under 200 ms.
+- Synthetic sort — ten timed sorts of 10,000 data rows (fixture setup excluded), using `performance.now()` around `sortRange` in Vitest's Node runtime: median 64.61 ms, min 47.71 ms, max 117.08 ms. The test asserts each run is under 300 ms; this is not a production build measurement.
+- Large sample date sort — `loadSampleLarge` fixture load was completed before timing; `performance.now()` surrounded `sortRange(engine.getUsedRange(), 1, 'asc')` in the same Node/Vitest run: 258.67 ms.
 
 ## Trade-offs and next steps
 
@@ -64,3 +64,52 @@ Every public engine method added or extended for these challenges, one line each
 ## Use of AI tools
 
 - Codex assisted with implementation, code review and test runs.
+
+## Challenge 3 — virtualized grid at scale
+
+### Data model and layout
+
+- The app starts with a sparse 100,000 × 200 engine. Empty cells are not allocated; row identity ranks are the engine's existing stable row IDs.
+- The engine stores sparse column-width and row-height overrides (defaults: 120 px and 24 px), and a frozen row/column count. Size maps and frozen settings are included in snapshots, so structural edits and undo restore them. Insert/delete shifts width and height overrides with their columns/rows.
+- `src/grid/layout.js` builds cumulative prefix offsets, finds the row/column at an offset by binary search, skips zero-height filtered rows, and adds four-item overscan. The app only creates cells in that viewport plus frozen rows and columns. Memoized cells receive primitive data; pointer actions are delegated at the grid container.
+- Filtered rows report layout height zero while retaining their engine row number. The existing selection, fill, sort, style and filter operations use engine coordinates.
+
+### Engine API added
+
+- `getColWidth(columnIndex)` — returns the override or 120 px; no undo entry.
+- `setColWidth(columnIndex, width)` — stores one width override in one undoable snapshot action.
+- `getRowHeight(rowIndex)` — returns 0 for a filtered row, otherwise the override or 24 px; no undo entry.
+- `setRowHeight(rowIndex, height)` — stores one height override in one undoable snapshot action.
+- `getFrozen()` — returns a copy of `{ rows, cols }`; no undo entry.
+- `getLayoutVersion()` — returns the version for size, hidden-row, and structural layout changes; no undo entry.
+- `setFrozen({ rows, cols })` — sets frozen row/column counts in one undoable snapshot action.
+- `stats.lastRecalcCount` — reports cells recalculated by the most recent engine recalculation; diagnostic only, no undo entry.
+
+### Undo semantics
+
+- A width or height committed after a resize gesture is one snapshot action and one Ctrl+Z restores the prior size map.
+- A freeze change is one snapshot action. Insert/delete row or column keeps the size overrides with their row/column and its existing structural undo restores the prior sizes.
+- Existing batch edits, fills, sorts and filter actions retain their Challenge 1 and 2 undo behavior.
+
+### Defects found and fixed
+
+- Cache invalidation on every edit discarded unrelated formula results. Cell edits now dirty only that cell and its transitive dependents; structural changes and sorting still rebuild and invalidate the full graph/cache.
+- `removeAllDependencies` (implemented as `removeDependencies`) previously risked removing reverse edges that belonged to dependents. Removing a formula now deletes only its outgoing precedent edges and its own range records.
+- Range references tracked only endpoints, so editing an interior cell did not recalculate `=SUM(A1:A5)`. Ranges are interval records indexed by covered column; changing a cell checks the relevant intervals without creating one graph edge per cell.
+- Recalculation had quadratic queue operations and membership checks. Kahn ordering now uses a queue index and sets, and dirty closure traversal is iterative.
+- Recursive dependency traversal and evaluation could overflow on long chains. Dependent traversal is iterative and recalculation evaluates in topological order so already resolved precedents are cached before dependents run; unresolved cycle members receive `#CYCLE!`.
+- Blank references returned text and caused arithmetic errors. A blank cell resolves to numeric zero in formulas while its display remains blank.
+
+### Measurements
+
+Measurements below are Node/Vitest engine runs, not production browser measurements. In the final full test run, filling `K2` from `=J2*2` through row 100,000 took **1,556.98 ms**. `sales-large.tsv` loading and the seed edit happened before `performance.now()`; the timer surrounds only `engine.fillRange({r1:1,c1:10,r2:1,c2:10}, {r1:1,c1:10,r2:99999,c2:10})`.
+
+With 50,000 formula cells across rows 50,001–100,000, the median of 20 `performance.now()` measurements around editing `J95000` with `setCell(94999, 9, value)` plus reading its dependent `K95000` with `getCell(94999, 10)` was **0.08 ms** (min 0.06 ms, max 0.29 ms). Setup is outside the timed loop. A separate assertion confirms an edit with no dependents recalculates exactly one cell using `stats.lastRecalcCount`.
+
+No browser numbers are claimed for first paint, 60 fps scrolling, or key latency. To measure them on the production build, run `npm run build` and `npm run preview`, then open the preview URL with `?perf=1`. Load **Sample 3k**, use the name box to reach `K2`, enter `=J2*2`, press Enter, and reselect `K2`. Drag its fill handle to the bottom edge of the grid and hold while the grid auto-scrolls; release when row 100,000 is under the pointer. This fills through the final row. Open browser DevTools **Performance**, record a reload for first paint. Then load **Sample 3k** again, record scrolling to row 95,000 and editing `J95000`; read scroll frames and scripting/commit time in the Performance trace alongside the overlay's commit count, last commit duration, last scroll-frame duration, and visible-cell count. Repeat on the production build before reporting production budgets.
+
+### Trade-offs
+
+- The grid keeps a single scroll container and positions only visible cells in a large sizer. Frozen first-row/first-column layers are synced by translating the small rendered set on scroll; the remaining cells scroll normally.
+- Prefix arrays rebuild after a size, filter visibility, or structural-layout change. Ordinary cell edits do not rebuild them. Scroll range state changes only when the visible row/column bounds change.
+- Auto-fit measures loaded display strings with a character-width approximation and caps columns at 400 px. Browser canvas text measurement can replace this if font-accurate auto-fit is needed.
