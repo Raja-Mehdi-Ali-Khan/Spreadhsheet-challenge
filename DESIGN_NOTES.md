@@ -4,7 +4,9 @@
 
 - Challenge 1 — range selection, editing, batched clear, range formatting and directional fill.
 - Challenge 2 — engine-owned styles, stable row identity, sorting, filters and their UI.
+- Challenge 3 — virtualized grid at scale, incremental formula recalculation and layout.
 - Challenge 4 — Ask your data, deterministic query plans and read-only results.
+- Challenge 5 — AI-assisted formatting plans, preview, apply and undo.
 
 ## Data model changes
 
@@ -15,7 +17,7 @@
 
 ## Engine API
 
-Every public engine method added or extended for these challenges, one line each. One undo means the full action listed.
+Engine methods added or extended for the challenges are listed one per line. Each undo description states the full action it restores.
 
 - `setCells(entries)` — applies `{ r, c, value }` edits as one batch; one undo restores every changed raw value.
 - `fillRange(src, dst)` — fills a one-dimensional source into the destination and copies seed styles cyclically; one undo restores all filled values and styles.
@@ -51,7 +53,7 @@ Every public engine method added or extended for these challenges, one line each
 
 ## Measurements
 
-- Fill budget — 68.41 ms for 5,000 generated cells in the final full Vitest run, on Windows with Vitest 3.2.7. `src/engine/fill.test.js` seeds 2 × 50 cells before timing, then calls `performance.now()` immediately before and after `engine.fillRange({ r1: 0, c1: 0, r2: 1, c2: 49 }, { r1: 0, c1: 0, r2: 101, c2: 49 })`; the 100 added rows × 50 columns are exactly 5,000 cells. The timing is a Node engine test, not a production build, and the test asserts under 200 ms.
+- Fill budget — 63.31 ms for 5,000 generated cells in the latest full Vitest run, on Windows with Vitest 3.2.7. `src/engine/fill.test.js` seeds 2 × 50 cells before timing, then calls `performance.now()` immediately before and after `engine.fillRange({ r1: 0, c1: 0, r2: 1, c2: 49 }, { r1: 0, c1: 0, r2: 101, c2: 49 })`; the 100 added rows × 50 columns are exactly 5,000 cells. The timing is a Node engine test, not a production build, and the test asserts under 200 ms.
 - Synthetic sort — ten timed sorts of 10,000 data rows (fixture setup excluded), using `performance.now()` around `sortRange` in Vitest's Node runtime: median 64.61 ms, min 47.71 ms, max 117.08 ms. The test asserts each run is under 300 ms; this is not a production build measurement.
 - Large sample date sort — `loadSampleLarge` fixture load was completed before timing; `performance.now()` surrounded `sortRange(engine.getUsedRange(), 1, 'asc')` in the same Node/Vitest run: 258.67 ms.
 
@@ -88,7 +90,7 @@ Every public engine method added or extended for these challenges, one line each
 
 ### Measurements
 
-- Large clean-table action — **151.98 ms median**. Method: parse `sales-large.tsv` and load it into one engine with `setCells` before timing; in Vitest's Node runtime, `performance.now()` surrounds `readSheet`/plan construction plus `engine.batch` application for 10 runs, with `engine.undo()` between runs outside the timed interval; sort the ten durations and take the mean of the middle two. Auto-fit measures the formatted displayed text with the documented character-width approximation. The test asserts under 300 ms.
+- Large clean-table action — **75.51 ms median** in the latest full Vitest run. Method: parse `sales-large.tsv` and load it into one engine with `setCells` before timing; in Vitest's Node runtime, `performance.now()` surrounds `readSheet`/plan construction plus `engine.batch` application for 10 runs, with `engine.undo()` between runs outside the timed interval; sort the ten durations and take the mean of the middle two. Auto-fit measures the formatted displayed text with the documented character-width approximation. The test asserts under 300 ms.
 
 ## Challenge 4 — Ask your data
 
