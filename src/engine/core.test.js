@@ -6,6 +6,15 @@ import { describe, it, expect } from 'vitest'
 import { createEngine } from './core.js'
 
 describe('engine basics', () => {
+    it('returns the bounding used range, excluding empty cells', () => {
+        const engine = createEngine(10, 10)
+        expect(engine.getUsedRange()).toEqual({ r1: 0, c1: 0, r2: 0, c2: 0 })
+        engine.setCells([{ r: 2, c: 1, value: 'x' }, { r: 5, c: 4, value: '=B3' }])
+        expect(engine.getUsedRange()).toEqual({ r1: 2, c1: 1, r2: 5, c2: 4 })
+        engine.setCell(5, 4, '')
+        expect(engine.getUsedRange()).toEqual({ r1: 2, c1: 1, r2: 2, c2: 1 })
+    })
+
     it('evaluates arithmetic', () => {
         const engine = createEngine(10, 10)
         engine.setCell(0, 0, '10')

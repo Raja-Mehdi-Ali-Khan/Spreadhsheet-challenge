@@ -1,7 +1,28 @@
 import { describe, expect, it } from 'vitest'
 import { fillSeries } from './fill.js'
+import { createEngine } from './core.js'
 
 describe('fillSeries', () => {
+    it('fills 5,000 cells in under 200 ms and reports the elapsed time', () => {
+        const engine = createEngine(102, 50)
+        const seeds = []
+        for (let c = 0; c < 50; c++) {
+            seeds.push({ r: 0, c, value: '1' }, { r: 1, c, value: '2' })
+        }
+        engine.setCells(seeds)
+
+        const start = performance.now()
+        engine.fillRange(
+            { r1: 0, c1: 0, r2: 1, c2: 49 },
+            { r1: 0, c1: 0, r2: 101, c2: 49 }
+        )
+        const elapsedMs = performance.now() - start
+
+        console.log(`fillRange 5,000 generated cells: ${elapsedMs.toFixed(2)} ms`)
+        expect(elapsedMs).toBeLessThan(200)
+        expect(engine.getCell(101, 49).raw).toBe('102')
+    })
+
     it('increments numbered text and preserves zero padding', () => {
         expect(fillSeries(['ORD-1001', 'ORD-1002'], 3)).toEqual([
             'ORD-1003',

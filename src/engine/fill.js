@@ -167,7 +167,10 @@ export function fillSeries(seedValues, count, backwards = false, axis = 'row') {
         const offsets = backwards
             ? Array.from({ length: count }, (_, index) => index - count)
             : Array.from({ length: count }, (_, index) => index + 1)
-        return offsets.map(offset => formatDate(anchor.time + step * offset * dayMilliseconds, anchor.format))
+        return offsets.map((offset, index) => {
+            const format = parsedDates[index % parsedDates.length].format
+            return formatDate(anchor.time + step * offset * dayMilliseconds, format)
+        })
     }
 
     for (const names of [WEEKDAYS, MONTHS]) {

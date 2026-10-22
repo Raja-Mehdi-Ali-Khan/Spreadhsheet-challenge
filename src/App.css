@@ -338,6 +338,38 @@ body {
   box-shadow: 0 0 0 1px rgba(26, 115, 232, 0.2);
 }
 
+.cell.in-selection {
+  background-color: #e8f0fe !important;
+}
+
+.cell.anchor-cell {
+  box-shadow: inset 0 0 0 2px #1a73e8;
+  z-index: 2;
+}
+
+.cell.selection-top { border-top: 2px solid #1a73e8; }
+.cell.selection-bottom { border-bottom: 2px solid #1a73e8; }
+.cell.selection-left { border-left: 2px solid #1a73e8; }
+.cell.selection-right { border-right: 2px solid #1a73e8; }
+
+.fill-handle {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  width: 9px;
+  height: 9px;
+  padding: 0;
+  border: 1px solid #fff;
+  background: #1a73e8;
+  cursor: crosshair;
+  z-index: 4;
+}
+
+.grid-scroll:focus-visible {
+  outline: 2px solid #1a73e8;
+  outline-offset: -2px;
+}
+
 .cell-display {
   padding: 3px 6px;
   font-size: 13px;

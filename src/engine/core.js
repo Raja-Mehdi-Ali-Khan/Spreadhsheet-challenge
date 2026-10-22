@@ -1038,6 +1038,17 @@ export function createEngine(initialRows = 50, initialCols = 50) {
         get rows() { return rows },
         get cols() { return cols },
         getCell: getCellForDisplay,
+        getUsedRange: () => {
+            if (cells.size === 0) return { r1: 0, c1: 0, r2: 0, c2: 0 }
+            let r1 = Infinity, c1 = Infinity, r2 = -1, c2 = -1
+            for (const key of cells.keys()) {
+                const coords = cellCoords(key)
+                if (!coords) continue
+                r1 = Math.min(r1, coords.row); c1 = Math.min(c1, coords.col)
+                r2 = Math.max(r2, coords.row); c2 = Math.max(c2, coords.col)
+            }
+            return r2 < 0 ? { r1: 0, c1: 0, r2: 0, c2: 0 } : { r1, c1, r2, c2 }
+        },
         setCell: executeSetCell,
         setCells: executeSetCells,
         fillRange: executeFillRange,
