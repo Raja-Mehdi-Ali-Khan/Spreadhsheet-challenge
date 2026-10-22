@@ -4,6 +4,7 @@
 
 - Challenge 1 — range selection, editing, batched clear, range formatting and directional fill.
 - Challenge 2 — engine-owned styles, stable row identity, sorting, filters and their UI.
+- Challenge 4 — Ask your data, deterministic query plans and read-only results.
 
 ## Data model changes
 
@@ -63,7 +64,34 @@ Every public engine method added or extended for these challenges, one line each
 
 ## Use of AI tools
 
-- Codex assisted with implementation, code review and test runs.
+- Codex assisted with implementation, code review and test runs. No AI-generated values enter query results: the provider only proposes a plan and the local executor calculates every result.
+
+## Challenge 4 — Ask your data
+
+### Provider and request context
+
+- The default provider is the deterministic local mock for offline repeatability. The optional HTTP provider uses a plain OpenAI-compatible chat-completions request because this wire format is also supported by several hosted services and local Ollama deployments; only `src/ai/provider.js` knows that protocol. Endpoint, model and optional bearer key come from `VITE_AI_ENDPOINT`, `VITE_AI_MODEL` and `VITE_AI_API_KEY`.
+- The provider receives the instruction, JSON action rules and serialized sheet context in `system`. Its `user` field is exactly the typed prompt, with no context appended, because the golden mock matches this raw string. `history` is an array of `{ role, content }` turns and contains the prior typed prompts and raw assistant responses.
+- The actual context object has this shape: `{ range: string, rowCount: number, columns: [{ name: string, index: number, type: 'number'|'currency'|'percent'|'date'|'text'|'id', examples: string[] }], sampleRows: string[][], selection: string, hasTotalsRow: boolean }`. `sampleRows` contains no more than five data rows and examples no more than three per column. The full computed-value matrix stays in the local executor and is never sent to the provider.
+
+### Parsing, validation, execution and failures
+
+- `extractJson` scans for the first balanced object, respecting quoted braces and escapes, and parses only that substring. Missing, incomplete or invalid JSON becomes `INVALID_RESPONSE` with a detail. `validateAction` checks action schemas, required fields, types, enums, additional fields and numeric bounds; validation errors include the failing JSON path. Valid `format_sheet` responses are refused as `READ_ONLY` by this read-only panel; unknown action types also yield `READ_ONLY`. Neither can reach query execution.
+- `executeQuery` resolves exact case-insensitive trimmed header names, normalizes and precomputes source columns, then deterministically filters, groups, aggregates, sorts and caps results. Unknown source and sort columns return `UNKNOWN_COLUMN` and `UNKNOWN_SORT_COLUMN`; unknown operators and aggregates return `UNKNOWN_OP` and `UNKNOWN_FN`. The UI asks which column was intended on `UNKNOWN_COLUMN`, displays clarify questions directly, and displays provider, parse, validation and read-only errors without changing the sheet.
+- Re-run calls the stored query plan against the current local sheet without calling a provider. Insert writes result headers and values through one `engine.setCells` batch and therefore creates one undo step; out-of-grid targets are refused. The conversation history is shown in the panel.
+- The 20 query golden cases pass, including the intended `UNKNOWN_COLUMN` and `READ_ONLY` refusal cases. No disagreement with `fixtures/ai-eval/queries.json` remains.
+
+### Engine API and undo
+
+- `readSheet(engine)` — reads computed formula results and source raw values from the used range into a local 2D array; no undo entry.
+- `executeQuery(sheetRows, plan)` — runs a validated read-only plan and returns columns, rows, rowCount and truncated, or a coded error; no undo entry.
+- `engine.setCells(entries)` — writes inserted headers and values as one batch; one undo restores every inserted cell's prior value.
+
+### Measurements
+
+- Query budget — **4.38 ms median** for golden q01 on `sales-large.tsv`. Measurement method: `loadSampleLarge` and `readSheet` run before timing in the Vitest Node process; `performance.now()` immediately surrounds each of 10 `executeQuery(rows, q01Plan)` calls; sorted timings use the midpoint mean of runs 5 and 6. Budget: under 50 ms.
+- Generated grouping budget — **151.14 ms median** for a two-key group-by over 100,000 generated data rows. Measurement method: generate the in-memory rows before timing in the Vitest Node process; `performance.now()` surrounds each of 10 `executeQuery` calls; sorted timings use the midpoint mean of runs 5 and 6. Budget: under 500 ms.
+
 
 ## Challenge 3 — virtualized grid at scale
 

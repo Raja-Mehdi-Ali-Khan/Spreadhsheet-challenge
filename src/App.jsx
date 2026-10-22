@@ -3,6 +3,7 @@ import './App.css'
 import { createEngine } from './engine/core.js'
 import { loadSampleSmall, loadSampleLarge } from './fixtures/loadSample.js'
 import { buildOffsets, sameRange, visibleRange as calculateVisibleRange } from './grid/layout.js'
+import AiPanel from './AiPanel.jsx'
 
 const TOTAL_ROWS = 100000
 const TOTAL_COLS = 200
@@ -34,6 +35,7 @@ export default function App() {
   const [nameValue, setNameValue] = useState('A1')
   const [perfView, setPerfView] = useState({ commits: 0, duration: 0, scrollFrame: 0 })
   const [resizePreview, setResizePreview] = useState(null)
+  const [aiOpen, setAiOpen] = useState(false)
   const gridRef = useRef(null)
   const inputRef = useRef(null)
   const filterDropdownRef = useRef(null)
@@ -127,6 +129,16 @@ export default function App() {
       document.removeEventListener('keydown', closeOnEscape)
     }
   }, [openFilterColumn])
+  useEffect(() => {
+    const handleAiShortcut = event => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        setAiOpen(open => !open)
+      }
+    }
+    window.addEventListener('keydown', handleAiShortcut)
+    return () => window.removeEventListener('keydown', handleAiShortcut)
+  }, [])
   const setFocus = useCallback((r, c, extend = false) => {
     setSelection(prev => ({ anchor: extend ? prev.anchor : { r, c }, focus: { r, c } }))
     if (!extend) setNameValue(`${getColumnLabel(c)}${r + 1}`)
@@ -395,6 +407,7 @@ export default function App() {
       <button className="toolbar-btn" onClick={undo} disabled={!engine.canUndo()}>↶ Undo</button><button className="toolbar-btn" onClick={redo} disabled={!engine.canRedo()}>↷ Redo</button>
       <button className="toolbar-btn" onClick={() => { engine.insertRow(anchor.r); force(); setLayoutRevision(value => value + 1) }}>+ Row</button><button className="toolbar-btn" onClick={() => { engine.deleteRow(anchor.r); force(); setLayoutRevision(value => value + 1) }}>- Row</button><button className="toolbar-btn" onClick={() => { engine.insertColumn(anchor.c); force(); setLayoutRevision(value => value + 1) }}>+ Col</button><button className="toolbar-btn" onClick={() => { engine.deleteColumn(anchor.c); force(); setLayoutRevision(value => value + 1) }}>- Col</button>
       <button className="toolbar-btn" onClick={() => { engine.setFrozen({ rows: frozen.rows ? 0 : 1, cols: frozen.cols }); force() }}>{frozen.rows ? "Unfreeze top row" : "Freeze top row"}</button>
+      <button className="toolbar-btn" onClick={() => setAiOpen(true)}>Ask your data (Ctrl+K)</button>
       {engine.hasActiveFilters() && <button className="toolbar-btn" onClick={clearAllFilters}>Clear all filters</button>}
       <button className="toolbar-btn danger" onClick={clearSelection}>✕ Clear</button><button className="toolbar-btn" onClick={() => load(loadSampleSmall)}>⬇ Sample 33</button><button className="toolbar-btn" onClick={() => load(loadSampleLarge)}>⬇ Sample 3k</button>
     </div>
@@ -446,5 +459,6 @@ export default function App() {
   return <div className="app-wrapper">
     <div className="app-header"><h2 className="app-title">📊 Spreadsheet App</h2></div>
     {perfEnabled ? <Profiler id="spreadsheet" onRender={onProfileRender}>{gridContent}</Profiler> : gridContent}
+    {aiOpen && <AiPanel engine={engine} selection={selection} onClose={() => setAiOpen(false)} onChanged={() => { force(); setLayoutRevision(value => value + 1) }}/>}
   </div>
 }

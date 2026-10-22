@@ -40,14 +40,29 @@ export function createHttpProvider(config = {}) {
     return {
         name: 'http',
         async complete(request) {
-            // TODO (candidate): call the LLM API of your choice with fetch().
-            //   - send request.system as the system prompt, request.history then
-            //     request.user as the conversation turns
-            //   - return { text: <model text>, provider: 'http' }
-            //   - surface network / auth / rate-limit failures as thrown Errors
-            //     with a readable message; the UI must show them, never swallow them
-            void endpoint; void apiKey; void model; void request
-            throw new Error('createHttpProvider is not implemented yet — wire it to the API of your choice (src/ai/provider.js)')
+            if (!endpoint || !model) throw new Error('AI endpoint and model are required (VITE_AI_ENDPOINT, VITE_AI_MODEL)')
+            let response
+            try {
+                response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
+                    body: JSON.stringify({ model, messages: [
+                        { role: 'system', content: request.system },
+                        ...(request.history || []).map(turn => ({ role: turn.role, content: turn.content })),
+                        { role: 'user', content: request.user },
+                    ] }),
+                })
+            } catch (error) { throw new Error(`AI network failure: ${error.message}`) }
+            if (!response.ok) {
+                if (response.status === 401 || response.status === 403) throw new Error(`AI authentication failed (${response.status})`)
+                if (response.status === 429) throw new Error('AI rate limit exceeded (429)')
+                throw new Error(`AI request failed (${response.status} ${response.statusText})`)
+            }
+            let payload
+            try { payload = await response.json() } catch (error) { throw new Error(`AI response was not valid JSON: ${error.message}`) }
+            const text = payload?.choices?.[0]?.message?.content
+            if (typeof text !== 'string') throw new Error('AI response did not contain choices[0].message.content')
+            return { text, provider: 'http' }
         },
     }
 }
