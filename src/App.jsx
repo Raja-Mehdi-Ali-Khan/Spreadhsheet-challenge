@@ -4,15 +4,17 @@ import { createEngine } from './engine/core.js'
 import { loadSampleSmall, loadSampleLarge } from './fixtures/loadSample.js'
 import { buildOffsets, sameRange, visibleRange as calculateVisibleRange } from './grid/layout.js'
 import AiPanel from './AiPanel.jsx'
+import { formatDisplay } from './format/display.js'
 
 const TOTAL_ROWS = 100000
 const TOTAL_COLS = 200
 const HEADER_HEIGHT = 30
 const ROW_HEADER_WIDTH = 50
-const DEFAULT_STYLE = { bold: false, italic: false, underline: false, bg: 'white', color: '#202124', align: 'left', fontSize: 13 }
+const DEFAULT_STYLE = { bold: false, italic: false, underline: false, bg: 'white', color: '#202124', align: 'left', fontSize: 13, numberFormat: 'general' }
 const filterValueKey = value => String(value ?? '').trim() ? String(value).trim().toLocaleLowerCase() : '(blanks)'
-const VirtualCell = memo(function VirtualCell({ r, c, raw, computed, error, bold, italic, underline, color, fontSize, align, bg, selected, isAnchor, topEdge, bottomEdge, leftEdge, rightEdge, editing, editValue, inputRef, onInputChange, onInputKeyDown, onInputBlur, top, left, width, height, frozenRow, frozenCol, showFillHandle, onFillStart }) {
-  const display = error || ((computed !== null && computed !== '') ? String(computed) : raw)
+const VirtualCell = memo(function VirtualCell({ r, c, raw, computed, error, bold, italic, underline, color, fontSize, align, bg, numberFormat, selected, isAnchor, topEdge, bottomEdge, leftEdge, rightEdge, editing, editValue, inputRef, onInputChange, onInputKeyDown, onInputBlur, top, left, width, height, frozenRow, frozenCol, showFillHandle, onFillStart }) {
+  const value = error || ((computed !== null && computed !== '') ? computed : raw)
+  const display = error || formatDisplay(value, numberFormat)
   return <div data-cell data-r={r} data-c={c} data-frozen-row={frozenRow ? "true" : undefined} data-frozen-col={frozenCol ? "true" : undefined} className={`virtual-cell ${selected ? 'in-selection' : ''} ${isAnchor ? 'anchor-cell' : ''} ${topEdge ? 'selection-top' : ''} ${bottomEdge ? 'selection-bottom' : ''} ${leftEdge ? 'selection-left' : ''} ${rightEdge ? 'selection-right' : ''}`} style={{ top, left, width, height, background: bg }}>
     {editing ? <input ref={inputRef} className="cell-input" value={editValue} onChange={onInputChange} onKeyDown={onInputKeyDown} onBlur={onInputBlur} style={{ fontWeight: bold ? 'bold' : 'normal', fontStyle: italic ? 'italic' : 'normal', textDecoration: underline ? 'underline' : 'none', color, fontSize: fontSize + 'px', textAlign: align, background: bg }}/> : <div className={`cell-display align-${align} ${error ? 'error' : ''}`} style={{ fontWeight: bold ? 'bold' : 'normal', fontStyle: italic ? 'italic' : 'normal', textDecoration: underline ? 'underline' : 'none', color: error ? '#d93025' : color, fontSize: fontSize + 'px' }}>{display}</div>}
     {showFillHandle && <button aria-label="Fill handle" className="fill-handle" onPointerDown={onFillStart}/>}
@@ -442,7 +444,7 @@ export default function App() {
         {visibleRowIndices.map(r => <div key={`rh${r}`} className="virtual-row-header" data-frozen-col="true" style={{ top: HEADER_HEIGHT + rowOffsets[r], width: ROW_HEADER_WIDTH, height: rowOffsets[r + 1] - rowOffsets[r] }} onClick={() => selectWholeRow(r)}>{r + 1}<div className="row-resize-grip" onPointerDown={event => startRowResize(event, r)}/></div>)}
         {visibleRowIndices.flatMap(r => visibleColumnIndices.map(c => {
           const cell = engine.getCell(r, c), style = styleAt(r, c), selected = rangeContains(r, c), isAnchor = anchor.r === r && anchor.c === c, editing = editingCell?.r === r && editingCell?.c === c
-          return <VirtualCell key={`${r}:${c}`} r={r} c={c} raw={cell.raw} computed={cell.computed} error={cell.error} bold={style.bold} italic={style.italic} underline={style.underline} color={style.color} fontSize={style.fontSize} align={style.align} bg={style.bg}
+          return <VirtualCell key={`${r}:${c}`} r={r} c={c} raw={cell.raw} computed={cell.computed} error={cell.error} bold={style.bold} italic={style.italic} underline={style.underline} color={style.color} fontSize={style.fontSize} align={style.align} bg={style.bg} numberFormat={style.numberFormat}
             selected={selected} isAnchor={isAnchor} topEdge={selected && r === activeBounds.r1} bottomEdge={selected && r === activeBounds.r2} leftEdge={selected && c === activeBounds.c1} rightEdge={selected && c === activeBounds.c2} editing={editing}
             editValue={editing ? editValue : undefined} inputRef={editing ? inputRef : undefined} onInputChange={editing ? event => setEditValue(event.target.value) : undefined} onInputKeyDown={editing ? onInputKeyDown : undefined} onInputBlur={editing ? () => { if (editingCell) commitEdit() } : undefined}
             top={HEADER_HEIGHT + rowOffsets[r]} left={ROW_HEADER_WIDTH + columnOffsets[c]} width={columnOffsets[c + 1] - columnOffsets[c]} height={rowOffsets[r + 1] - rowOffsets[r]} frozenRow={r < frozen.rows} frozenCol={c < frozen.cols}

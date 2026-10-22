@@ -66,6 +66,30 @@ Every public engine method added or extended for these challenges, one line each
 
 - Codex assisted with implementation, code review and test runs. No AI-generated values enter query results: the provider only proposes a plan and the local executor calculates every result.
 
+## Challenge 5 — Format with AI
+
+### Data model, API and undo
+
+- `numberFormat` (`general`, `number`, `currency`, `percent`, `date`) is another sparse style property in the engine's existing per-cell style map. The engine keeps the raw cell value unchanged; the grid applies formatting only while rendering cell content. Formula-bar values remain raw.
+- Frozen row counts remain engine state through `getFrozen` / `setFrozen`; column widths use `getColWidth` / `setColWidth`. All three state types are in structural snapshots, so insert/delete and undo shift styles with their cells.
+- `engine.batch(fn)` — groups changes made by ordinary engine APIs inside `fn` into one snapshot undo entry; nested calls join the outer transaction, exceptions restore the starting snapshot, and no-op transactions create no entry.
+- `planFormat(action, sheetInfo)` — returns final changed style entries, freeze request, changed widths, auto-fit flag, result code and plain-language description; pure and React-free.
+- `describeFormat(action)` — turns the action into a short preview description; pure and React-free.
+- `formatDisplay(value, numberFormat)` — formats display text without changing cell storage; pure and React-free, using the query executor's `toNum` and `toDate` helpers.
+- Applying an action calls `engine.batch` once. One undo restores every touched style, frozen row count and width; `NO_CHANGES` and `OUT_OF_RANGE` produce no undo entry.
+
+### Formatting rules and trade-offs
+
+- The applier folds operations in contract order: clear used-range styles, body style, body-only column styles, detected totals style, then header style. It strips a header number format and never lets a column entry apply alignment or a number format to the header. Out-of-range columns and widths are ignored.
+- Totals detection checks the last used row's first filled label against the contract regex, then checks the summary-line rule (non-numeric label, numeric tail, at least two filled values and a blank cell). A non-total last row drops `totalsStyle`.
+- Auto-fit uses a documented text-width approximation: longest rendered/raw string length × 7.5 px + 24 px, clamped to 48–400 px. It runs after explicit widths and styles and can be replaced by canvas `measureText` if font-accurate browser sizing becomes important.
+- The UI previews the validated action and description; Apply computes a plan against the current sheet and runs it in one transaction. Discard changes no sheet state. The panel displays `APPLIED`, `NO_CHANGES` or `OUT_OF_RANGE`.
+- Golden fixture discrepancies: f03 expects J22 to be blank, but `sales.tsv` row 22 contains `$3,344.00` in J22 (`ORD-1020`). f06 expects one undo for clearing formatting on an initially unformatted fixture; per the contract's no-op rule this is `NO_CHANGES` with no undo. The test reports these two discrepancies and verifies the observed behavior instead of falsifying sheet data or creating a fake undo entry.
+
+### Measurements
+
+- Large clean-table action — **151.98 ms median**. Method: parse `sales-large.tsv` and load it into one engine with `setCells` before timing; in Vitest's Node runtime, `performance.now()` surrounds `readSheet`/plan construction plus `engine.batch` application for 10 runs, with `engine.undo()` between runs outside the timed interval; sort the ten durations and take the mean of the middle two. Auto-fit measures the formatted displayed text with the documented character-width approximation. The test asserts under 300 ms.
+
 ## Challenge 4 — Ask your data
 
 ### Provider and request context
@@ -76,7 +100,7 @@ Every public engine method added or extended for these challenges, one line each
 
 ### Parsing, validation, execution and failures
 
-- `extractJson` scans for the first balanced object, respecting quoted braces and escapes, and parses only that substring. Missing, incomplete or invalid JSON becomes `INVALID_RESPONSE` with a detail. `validateAction` checks action schemas, required fields, types, enums, additional fields and numeric bounds; validation errors include the failing JSON path. Valid `format_sheet` responses are refused as `READ_ONLY` by this read-only panel; unknown action types also yield `READ_ONLY`. Neither can reach query execution.
+- `extractJson` scans for the first balanced object, respecting quoted braces and escapes, and parses only that substring. Missing, incomplete or invalid JSON becomes `INVALID_RESPONSE` with a detail. `validateAction` checks action schemas, required fields, types, enums, additional fields and numeric bounds; validation errors include the failing JSON path. Unknown action types yield `READ_ONLY`; the query executor accepts only `query`, while validated `format_sheet` actions go to the Challenge 5 preview/applier path.
 - `executeQuery` resolves exact case-insensitive trimmed header names, normalizes and precomputes source columns, then deterministically filters, groups, aggregates, sorts and caps results. Unknown source and sort columns return `UNKNOWN_COLUMN` and `UNKNOWN_SORT_COLUMN`; unknown operators and aggregates return `UNKNOWN_OP` and `UNKNOWN_FN`. The UI asks which column was intended on `UNKNOWN_COLUMN`, displays clarify questions directly, and displays provider, parse, validation and read-only errors without changing the sheet.
 - Re-run calls the stored query plan against the current local sheet without calling a provider. Insert writes result headers and values through one `engine.setCells` batch and therefore creates one undo step; out-of-grid targets are refused. The conversation history is shown in the panel.
 - The 20 query golden cases pass, including the intended `UNKNOWN_COLUMN` and `READ_ONLY` refusal cases. No disagreement with `fixtures/ai-eval/queries.json` remains.

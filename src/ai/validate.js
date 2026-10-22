@@ -42,6 +42,5 @@ export function validateAction(obj) {
     if(!err&&'freezeRows'in obj&&obj.freezeRows!==null&&(!Number.isInteger(obj.freezeRows)||obj.freezeRows<0))err='$.freezeRows must be a non-negative integer or null'
     for(const key of ['columns','columnWidths']) if(!err&&key in obj){err=array(obj[key],`$.${key}`); if(!err) for(let i=0;i<obj[key].length;i++){const x=obj[key][i],p=`$.${key}[${i}]`;err=object(x,p,key==='columns'?['col','style']:['col','width'],key==='columns'?['col','style']:['col','width']);if(err)break;if(!Number.isInteger(x.col)||x.col<0){err=`${p}.col must be a non-negative integer`;break}if(key==='columns')err=style(x.style,`${p}.style`);else if(!Number.isInteger(x.width)||x.width<30||x.width>600)err=`${p}.width must be an integer from 30 to 600`;if(err)break}}
   }
-  if (err) return invalid(err)
-  return obj.type === 'format_sheet' ? { error: 'READ_ONLY', detail: 'format_sheet is not executable in the Ask your data panel' } : obj
+  return err ? invalid(err) : obj
 }

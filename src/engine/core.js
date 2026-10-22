@@ -560,6 +560,9 @@ export function createEngine(initialRows = 50, initialCols = 50) {
     const computedCache = new Map()
     const undoStack = []
     const redoStack = []
+    let batchDepth = 0
+    let batchSnapshot = null
+    let batchChanged = false
 
     // Internal generation counter — incremented on every structural mutation.
     // Used by the cache to validate entries and by the engine to track state integrity.
@@ -993,6 +996,7 @@ export function createEngine(initialRows = 50, initialCols = 50) {
     // ── Undo / Redo ──
 
     function pushToUndoStack(entry) {
+        if (batchDepth > 0) { batchChanged = true; return }
         undoStack.push({ ...entry, _gen: _generation })
         if (undoStack.length > MAX_UNDO_HISTORY) undoStack.shift()
         redoStack.length = 0
@@ -1069,8 +1073,8 @@ export function createEngine(initialRows = 50, initialCols = 50) {
         executeSetCells([], [{ r: row, c: col, style: partialStyle }])
     }
 
-    function executeSetStylesPublic(entries) {
-        executeSetCells([], entries)
+    function executeSetStylesPublic(entries, replaceStyles = false) {
+        executeSetCells([], entries, replaceStyles)
     }
 
     function executeFillRange(src, dst) {
@@ -1368,7 +1372,7 @@ export function createEngine(initialRows = 50, initialCols = 50) {
         ordered.forEach((sourceRow, index) => rowMap.set(sourceRow, visibleSlots[index]))
         if ([...rowMap].every(([sourceRow, targetRow]) => sourceRow === targetRow)) return
 
-        const snapshot = takeSnapshot()
+        const snapshot = batchDepth > 0 ? null : takeSnapshot()
         pushToUndoStack({ type: 'snapshot', snap: snapshot })
         const nextCells = new Map()
         for (const [key, cell] of cells) {
@@ -1440,7 +1444,7 @@ export function createEngine(initialRows = 50, initialCols = 50) {
         if (!Number.isInteger(columnIndex) || columnIndex < 0 || columnIndex >= cols || !Number.isFinite(width) || width < 24) throw new RangeError('Invalid column width')
         const previous = colWidths.get(columnIndex) ?? DEFAULT_COL_WIDTH
         if (previous === width) return
-        const snapshot = takeSnapshot()
+        const snapshot = batchDepth > 0 ? null : takeSnapshot()
         pushToUndoStack({ type: 'snapshot', snap: snapshot })
         if (width === DEFAULT_COL_WIDTH) colWidths.delete(columnIndex)
         else colWidths.set(columnIndex, width)
@@ -1451,7 +1455,7 @@ export function createEngine(initialRows = 50, initialCols = 50) {
         if (!Number.isInteger(rowIndex) || rowIndex < 0 || rowIndex >= rows || !Number.isFinite(height) || height < 12) throw new RangeError('Invalid row height')
         const previous = rowHeights.get(rowIndex) ?? DEFAULT_ROW_HEIGHT
         if (previous === height) return
-        const snapshot = takeSnapshot()
+        const snapshot = batchDepth > 0 ? null : takeSnapshot()
         pushToUndoStack({ type: 'snapshot', snap: snapshot })
         if (height === DEFAULT_ROW_HEIGHT) rowHeights.delete(rowIndex)
         else rowHeights.set(rowIndex, height)
@@ -1461,9 +1465,33 @@ export function createEngine(initialRows = 50, initialCols = 50) {
     function setFrozen(value) {
         if (!value || !Number.isInteger(value.rows) || !Number.isInteger(value.cols) || value.rows < 0 || value.cols < 0) throw new TypeError('frozen must contain non-negative integer rows and cols')
         if (frozen.rows === value.rows && frozen.cols === value.cols) return
-        const snapshot = takeSnapshot()
+        const snapshot = batchDepth > 0 ? null : takeSnapshot()
         pushToUndoStack({ type: 'snapshot', snap: snapshot })
         frozen = { rows: Math.min(rows, value.rows), cols: Math.min(cols, value.cols) }
+    }
+
+    function batch(fn) {
+        if (typeof fn !== 'function') throw new TypeError('batch expects a function')
+        if (batchDepth > 0) return fn()
+        batchSnapshot = takeSnapshot()
+        batchChanged = false
+        batchDepth = 1
+        let result
+        try {
+            result = fn()
+        } catch (error) {
+            batchDepth = 0
+            restoreSnapshot(batchSnapshot)
+            batchSnapshot = null
+            batchChanged = false
+            throw error
+        }
+        batchDepth = 0
+        const snapshot = batchSnapshot
+        batchSnapshot = null
+        if (batchChanged) pushToUndoStack({ type: 'snapshot', snap: snapshot })
+        batchChanged = false
+        return result
     }
 
     function undo() {
@@ -1608,6 +1636,7 @@ export function createEngine(initialRows = 50, initialCols = 50) {
         fillRange: executeFillRange,
         setStyle: executeSetStyle,
         setStyles: executeSetStylesPublic,
+        batch,
         getStyle: (row, col) => styles.has(cellKey(row, col)) ? { ...styles.get(cellKey(row, col)) } : {},
         getColWidth: column => colWidths.get(column) ?? DEFAULT_COL_WIDTH,
         setColWidth,
